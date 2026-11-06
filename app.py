@@ -1,8 +1,7 @@
-
 import os
 import secrets
-import sqlite3
 
+import psycopg
 from flask import Flask, render_template, request, jsonify, session, redirect
 
 from database import (
@@ -11,28 +10,33 @@ from database import (
     buscar_convidado,
     listar_convidados,
     listar_presentes,
-    reservar_presentes
+    reservar_presentes,
 )
-
 
 app = Flask(__name__)
 
-app.config["DATABASE"] = os.environ.get(
-    "DATABASE_PATH",
-    os.path.join(app.instance_path, "presentes.db")
-)
+app.config["DATABASE_URL"] = os.environ.get("DATABASE_URL", "").strip()
 
 app.config["SECRET_KEY"] = os.environ.get(
     "FLASK_SECRET_KEY",
-    "chave-temporaria-apenas-para-desenvolvimento"
+    "chave-temporaria-apenas-para-desenvolvimento",
 )
 
 app.config["ADMIN_PASSWORD"] = os.environ.get(
     "ADMIN_PASSWORD",
-    "adminTubasNyra"
+    "adminTubasNyra",
 )
 
-os.makedirs(app.instance_path, exist_ok=True)
+if not app.config["DATABASE_URL"]:
+    raise RuntimeError(
+        "A variável DATABASE_URL não foi configurada. "
+        "Adicione a connection string do Neon nas variáveis de ambiente."
+    )
+
+if app.config["SECRET_KEY"] == "chave-temporaria-apenas-para-desenvolvimento":
+    app.logger.warning(
+        "Configure uma FLASK_SECRET_KEY forte nas variáveis do Render."
+    )
 
 init_app(app)
 
@@ -57,7 +61,7 @@ def obter_dados_json():
 def obter_token():
     token = obter_dados_json().get("token", "")
 
-    if not isinstance(token, str) or len(token) > 128:
+    if not isinstance(token, str) or len(token) > 256:
         return None
 
     return token
@@ -80,12 +84,14 @@ def confirmar_presenca():
 
     nome = " ".join(nome.split())
 
+    # Acesso administrativo
     if secrets.compare_digest(nome, app.config["ADMIN_PASSWORD"]):
         session["admin_autenticado"] = True
+
         return jsonify({
             "sucesso": True,
             "admin": True,
-            "redirect": "/admin"
+            "redirect": "/admin",
         })
 
     if len(nome) < 2 or len(nome) > 100:
@@ -97,12 +103,15 @@ def confirmar_presenca():
 
     try:
         convidado, ja_cadastrado = criar_ou_obter_convidado(
-            nome, token
+            nome,
+            token,
         )
 
-    except sqlite3.Error:
+    except psycopg.Error:
+        app.logger.exception("Erro ao cadastrar convidado.")
+
         return jsonify({
-            "erro": "Não foi possível confirmar sua presença."
+            "erro": "Não foi possível confirmar sua presença. Tente novamente."
         }), 500
 
     return jsonify({
@@ -110,7 +119,7 @@ def confirmar_presenca():
         "admin": False,
         "token": token,
         "nome": convidado["nome"],
-        "ja_cadastrado": ja_cadastrado
+        "ja_cadastrado": ja_cadastrado,
     }), 201
 
 
@@ -123,7 +132,7 @@ def verificar_presenca():
 
     return jsonify({
         "confirmado": True,
-        "nome": convidado["nome"]
+        "nome": convidado["nome"],
     })
 
 
@@ -137,7 +146,15 @@ def api_presentes():
             "erro": "Confirme sua presença para continuar."
         }), 401
 
-    presentes = listar_presentes(convidado["id"])
+    try:
+        presentes = listar_presentes(convidado["id"])
+
+    except psycopg.Error:
+        app.logger.exception("Erro ao listar presentes.")
+
+        return jsonify({
+            "erro": "Não foi possível carregar os presentes."
+        }), 500
 
     return jsonify([
         {
@@ -147,7 +164,7 @@ def api_presentes():
             "disponiveis": max(0, presente["disponiveis"]),
             "selecionado_por_mim": bool(
                 presente["selecionado_por_mim"]
-            )
+            ),
         }
         for presente in presentes
     ])
@@ -156,7 +173,10 @@ def api_presentes():
 @app.route("/api/reservar", methods=["POST"])
 def api_reservar():
     dados = obter_dados_json()
-    convidado = validar_convidado(dados.get("token", ""))
+
+    convidado = validar_convidado(
+        dados.get("token", "")
+    )
 
     if not convidado:
         return jsonify({
@@ -169,7 +189,10 @@ def api_reservar():
         not isinstance(presentes_ids, list)
         or len(presentes_ids) == 0
         or len(presentes_ids) > 2
-        or any(type(item) is not int or item <= 0 for item in presentes_ids)
+        or any(
+            type(item) is not int or item <= 0
+            for item in presentes_ids
+        )
     ):
         return jsonify({
             "erro": "Selecione entre um e dois presentes."
@@ -178,12 +201,14 @@ def api_reservar():
     try:
         sucesso, mensagem = reservar_presentes(
             convidado["id"],
-            presentes_ids
+            presentes_ids,
         )
 
-    except sqlite3.Error:
+    except psycopg.Error:
+        app.logger.exception("Erro ao reservar presentes.")
+
         return jsonify({
-            "erro": "Não foi possível realizar a reserva."
+            "erro": "Não foi possível realizar a reserva. Tente novamente."
         }), 500
 
     if not sucesso:
@@ -191,7 +216,7 @@ def api_reservar():
 
     return jsonify({
         "sucesso": True,
-        "mensagem": mensagem
+        "mensagem": mensagem,
     })
 
 
@@ -200,10 +225,21 @@ def api_admin_convidados():
     if not session.get("admin_autenticado"):
         return jsonify({"erro": "Acesso não autorizado."}), 401
 
-    convidados = listar_convidados()
+    try:
+        convidados = listar_convidados()
+
+    except psycopg.Error:
+        app.logger.exception("Erro ao listar convidados.")
+
+        return jsonify({
+            "erro": "Não foi possível carregar os convidados."
+        }), 500
 
     return jsonify([
-        {"id": convidado["id"], "nome": convidado["nome"]}
+        {
+            "id": convidado["id"],
+            "nome": convidado["nome"],
+        }
         for convidado in convidados
     ])
 
@@ -211,6 +247,7 @@ def api_admin_convidados():
 @app.route("/api/admin/sair", methods=["POST"])
 def api_admin_sair():
     session.pop("admin_autenticado", None)
+
     return jsonify({"sucesso": True})
 
 
