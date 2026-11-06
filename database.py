@@ -1,3 +1,4 @@
+
 import hashlib
 import os
 
@@ -5,6 +6,10 @@ import psycopg
 from psycopg.rows import dict_row
 from flask import current_app, g
 
+
+# ==========================================
+# LISTA INICIAL DE PRESENTES
+# ==========================================
 
 PRESENTES_INICIAIS = [
     ("Jogo de panelas", 1),
@@ -21,7 +26,9 @@ PRESENTES_INICIAIS = [
 ]
 
 
-# CONEXÃO COM O POSTGRESQL
+# ==========================================
+# CONEXÃO COM POSTGRESQL
+# ==========================================
 
 def get_db():
     if "db" not in g:
@@ -42,7 +49,9 @@ def close_db(error=None):
         db.close()
 
 
+# ==========================================
 # INICIALIZAÇÃO DO BANCO
+# ==========================================
 
 def init_db():
     db = get_db()
@@ -61,7 +70,7 @@ def init_db():
 
     with db.transaction():
 
-        # Evita que dois processos do servidor insiram
+        # Evita que diferentes processos insiram
         # a lista inicial simultaneamente.
         db.execute(
             """
@@ -82,16 +91,18 @@ def init_db():
         ).fetchone()["total"]
 
         if quantidade == 0:
-            db.executemany(
-                """
-                INSERT INTO presentes (
-                    nome,
-                    quantidade_total
+            # No Psycopg 3, executemany pertence ao cursor.
+            with db.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO presentes (
+                        nome,
+                        quantidade_total
+                    )
+                    VALUES (%s, %s)
+                    """,
+                    PRESENTES_INICIAIS,
                 )
-                VALUES (%s, %s)
-                """,
-                PRESENTES_INICIAIS,
-            )
 
 
 def init_app(app):
@@ -101,7 +112,9 @@ def init_app(app):
         init_db()
 
 
-# TOKENS DOS CONVIDADOS
+# ==========================================
+# HASH DOS TOKENS
+# ==========================================
 
 def gerar_hash(token):
     return hashlib.sha256(
@@ -109,7 +122,9 @@ def gerar_hash(token):
     ).hexdigest()
 
 
+# ==========================================
 # CRIAR OU LOCALIZAR CONVIDADO
+# ==========================================
 
 def criar_ou_obter_convidado(nome, token):
     db = get_db()
@@ -119,7 +134,7 @@ def criar_ou_obter_convidado(nome, token):
 
     with db.transaction():
 
-        # Impede cadastros simultâneos duplicados
+        # Evita dois cadastros simultâneos
         # para o mesmo nome.
         db.execute(
             """
@@ -152,7 +167,7 @@ def criar_ou_obter_convidado(nome, token):
                 (nome,),
             ).fetchone()
 
-        # Cada acesso recebe um token próprio.
+        # Cada acesso recebe seu próprio token.
         db.execute(
             """
             INSERT INTO tokens_convidados (
@@ -170,7 +185,9 @@ def criar_ou_obter_convidado(nome, token):
     return convidado, ja_cadastrado
 
 
-# LOCALIZAR CONVIDADO PELO TOKEN
+# ==========================================
+# BUSCAR CONVIDADO PELO TOKEN
+# ==========================================
 
 def buscar_convidado(token):
     db = get_db()
@@ -191,7 +208,9 @@ def buscar_convidado(token):
     ).fetchone()
 
 
-# LISTAR CONVIDADOS PARA O ADMIN
+# ==========================================
+# LISTAR CONVIDADOS
+# ==========================================
 
 def listar_convidados():
     db = get_db()
@@ -205,7 +224,9 @@ def listar_convidados():
     ).fetchall()
 
 
+# ==========================================
 # LISTAR PRESENTES
+# ==========================================
 
 def listar_presentes(convidado_id):
     db = get_db()
@@ -231,7 +252,7 @@ def listar_presentes(convidado_id):
                 SELECT 1
                 FROM reservas AS r
                 WHERE r.presente_id = p.id
-                AND r.convidado_id = %s
+                  AND r.convidado_id = %s
             ) AS selecionado_por_mim
 
         FROM presentes AS p
@@ -242,7 +263,9 @@ def listar_presentes(convidado_id):
     ).fetchall()
 
 
+# ==========================================
 # CONTAR RESERVAS DO CONVIDADO
+# ==========================================
 
 def contar_reservas(convidado_id):
     db = get_db()
@@ -257,12 +280,14 @@ def contar_reservas(convidado_id):
     ).fetchone()["total"]
 
 
-# RESERVAR PRESENTES COM PROTEÇÃO CONTRA CONCORRÊNCIA
+# ==========================================
+# RESERVAR PRESENTES
+# ==========================================
 
 def reservar_presentes(convidado_id, presentes_ids):
     db = get_db()
 
-    # Remove IDs repetidos sem alterar a ordem.
+    # Remove IDs repetidos, mantendo a ordem.
     presentes_ids = list(
         dict.fromkeys(presentes_ids)
     )
@@ -273,7 +298,8 @@ def reservar_presentes(convidado_id, presentes_ids):
     try:
         with db.transaction():
 
-            # Serializa reservas simultâneas do mesmo convidado.
+            # Serializa reservas simultâneas
+            # feitas pelo mesmo convidado.
             db.execute(
                 """
                 SELECT pg_advisory_xact_lock(
@@ -298,9 +324,9 @@ def reservar_presentes(convidado_id, presentes_ids):
                     "Você pode escolher no máximo dois presentes."
                 )
 
-            # Bloqueia os presentes selecionados.
-            # Duas pessoas não conseguem reservar a última
-            # unidade simultaneamente.
+            # Bloqueia as linhas dos presentes selecionados.
+            # Isso impede que duas pessoas reservem
+            # a mesma última unidade simultaneamente.
             presentes = db.execute(
                 """
                 SELECT
@@ -321,7 +347,7 @@ def reservar_presentes(convidado_id, presentes_ids):
                     "Um dos presentes selecionados não existe."
                 )
 
-            # Verifica o estoque de cada presente.
+            # Confere a disponibilidade de cada presente.
             for presente in presentes:
 
                 reservados = db.execute(
@@ -345,20 +371,22 @@ def reservar_presentes(convidado_id, presentes_ids):
                         "Um dos presentes acabou de ser escolhido."
                     )
 
-            # Só chega aqui se todos os presentes estiverem disponíveis.
-            db.executemany(
-                """
-                INSERT INTO reservas (
-                    convidado_id,
-                    presente_id
+            # Confirma todas as reservas na mesma transação.
+            # Se alguma falhar, nenhuma será confirmada.
+            with db.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO reservas (
+                        convidado_id,
+                        presente_id
+                    )
+                    VALUES (%s, %s)
+                    """,
+                    [
+                        (convidado_id, presente_id)
+                        for presente_id in presentes_ids
+                    ],
                 )
-                VALUES (%s, %s)
-                """,
-                [
-                    (convidado_id, presente_id)
-                    for presente_id in presentes_ids
-                ],
-            )
 
         return True, "Presentes escolhidos com sucesso!"
 
@@ -369,7 +397,9 @@ def reservar_presentes(convidado_id, presentes_ids):
         )
 
 
+# ==========================================
 # ADICIONAR PRESENTE
+# ==========================================
 
 def adicionar_presente(nome, quantidade=1):
     db = get_db()
