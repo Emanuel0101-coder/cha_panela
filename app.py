@@ -17,9 +17,9 @@ from database import (
 
 app = Flask(__name__)
 
-app.config["DATABASE"] = os.path.join(
-    app.instance_path,
-    "presentes.db"
+app.config["DATABASE"] = os.environ.get(
+    "DATABASE_PATH",
+    os.path.join(app.instance_path, "presentes.db")
 )
 
 app.config["SECRET_KEY"] = os.environ.get(
