@@ -7,12 +7,11 @@ from flask import Flask, render_template, request, jsonify, session, redirect
 
 from database import (
     init_app,
-    criar_convidado,
+    criar_ou_obter_convidado,
     buscar_convidado,
     listar_convidados,
     listar_presentes,
-    reservar_presente,
-    nome_ja_cadastrado
+    reservar_presentes
 )
 
 
@@ -81,7 +80,6 @@ def confirmar_presenca():
 
     nome = " ".join(nome.split())
 
-    # Acesso administrativo
     if secrets.compare_digest(nome, app.config["ADMIN_PASSWORD"]):
         session["admin_autenticado"] = True
         return jsonify({
@@ -95,13 +93,12 @@ def confirmar_presenca():
             "erro": "Informe um nome entre 2 e 100 caracteres."
         }), 400
 
-    
-    ja_cadastrado = nome_ja_cadastrado(nome)
-
     token = secrets.token_urlsafe(32)
 
     try:
-        criar_convidado(nome, token)
+        convidado, ja_cadastrado = criar_ou_obter_convidado(
+            nome, token
+        )
 
     except sqlite3.Error:
         return jsonify({
@@ -112,10 +109,9 @@ def confirmar_presenca():
         "sucesso": True,
         "admin": False,
         "token": token,
-        "nome": nome,
+        "nome": convidado["nome"],
         "ja_cadastrado": ja_cadastrado
     }), 201
-
 
 
 @app.route("/api/verificar-presenca", methods=["POST"])
@@ -133,39 +129,69 @@ def verificar_presenca():
 
 @app.route("/api/presentes", methods=["GET"])
 def api_presentes():
-    presentes = listar_presentes()
-
-    return jsonify([
-        {"id": presente["id"], "nome": presente["nome"]}
-        for presente in presentes
-    ])
-
-
-@app.route("/api/reservar/<int:presente_id>", methods=["POST"])
-def api_reservar(presente_id):
-    convidado = validar_convidado(obter_token())
+    token = request.args.get("token", "")
+    convidado = validar_convidado(token)
 
     if not convidado:
         return jsonify({
             "erro": "Confirme sua presença para continuar."
         }), 401
 
+    presentes = listar_presentes(convidado["id"])
+
+    return jsonify([
+        {
+            "id": presente["id"],
+            "nome": presente["nome"],
+            "quantidade_total": presente["quantidade_total"],
+            "disponiveis": max(0, presente["disponiveis"]),
+            "selecionado_por_mim": bool(
+                presente["selecionado_por_mim"]
+            )
+        }
+        for presente in presentes
+    ])
+
+
+@app.route("/api/reservar", methods=["POST"])
+def api_reservar():
+    dados = obter_dados_json()
+    convidado = validar_convidado(dados.get("token", ""))
+
+    if not convidado:
+        return jsonify({
+            "erro": "Confirme sua presença para continuar."
+        }), 401
+
+    presentes_ids = dados.get("presentes", [])
+
+    if (
+        not isinstance(presentes_ids, list)
+        or len(presentes_ids) == 0
+        or len(presentes_ids) > 2
+        or any(type(item) is not int or item <= 0 for item in presentes_ids)
+    ):
+        return jsonify({
+            "erro": "Selecione entre um e dois presentes."
+        }), 400
+
     try:
-        reservado = reservar_presente(presente_id)
+        sucesso, mensagem = reservar_presentes(
+            convidado["id"],
+            presentes_ids
+        )
 
     except sqlite3.Error:
         return jsonify({
             "erro": "Não foi possível realizar a reserva."
         }), 500
 
-    if not reservado:
-        return jsonify({
-            "erro": "Este presente já foi escolhido por outra pessoa."
-        }), 409
+    if not sucesso:
+        return jsonify({"erro": mensagem}), 409
 
     return jsonify({
         "sucesso": True,
-        "mensagem": "Presente escolhido com sucesso!"
+        "mensagem": mensagem
     })
 
 

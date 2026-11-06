@@ -15,7 +15,6 @@
 
     <main class="container">
 
-        <!-- CABEÇALHO -->
         <header class="header">
             <span class="header-decoration">✦</span>
 
@@ -98,13 +97,34 @@
             <h2>Lista de presentes</h2>
 
             <p class="description">
-                Escolha um presente da nossa lista.
-                Ao confirmar sua escolha, ele ficará reservado.
+                Escolha até dois presentes da nossa lista.
+                Você pode selecionar um ou dois itens e alterar
+                sua escolha antes de confirmar.
             </p>
+
+            <div class="selection-summary">
+                <span id="contador-escolhas">0 de 2 presentes escolhidos</span>
+                <p>Você pode escolher no máximo dois presentes.</p>
+            </div>
 
             <div id="lista-presentes" class="gift-list">
                 <p class="loading">Carregando presentes...</p>
             </div>
+
+            <button
+                type="button"
+                id="btn-confirmar-escolhas"
+                disabled
+            >
+                Confirmar minhas escolhas
+            </button>
+
+            <div
+                id="mensagem-feedback"
+                class="feedback-message hidden"
+                role="status"
+                aria-live="polite"
+            ></div>
 
             <p class="footer-message">
                 Obrigado por fazer parte desse momento! 💛
@@ -129,13 +149,17 @@
 
                 <div class="section-icon">🎁</div>
 
-                <h2>Confirmar presente</h2>
+                <h2>Confirmar suas escolhas?</h2>
 
                 <p>
-                    Você deseja escolher este presente?
+                    Você está prestes a escolher:
                 </p>
 
                 <strong id="nome-presente"></strong>
+
+                <p class="modal-note">
+                    Depois de confirmar, suas escolhas ficarão reservadas.
+                </p>
 
                 <div class="modal-actions">
 
@@ -144,14 +168,14 @@
                         id="btn-cancelar"
                         class="btn-secondary"
                     >
-                        Cancelar
+                        Voltar
                     </button>
 
                     <button
                         type="button"
                         id="btn-reservar"
                     >
-                        Sim, escolher
+                        Sim, confirmar
                     </button>
 
                 </div>
@@ -159,6 +183,7 @@
             </div>
 
         </div>
+
 
         <footer>
             Feito com carinho para compartilhar esse momento especial.

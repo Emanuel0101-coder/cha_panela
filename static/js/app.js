@@ -14,13 +14,18 @@ const btnLista = document.getElementById("btn-lista");
 const btnNovoConvidado = document.getElementById("btn-novo-convidado");
 
 const listaPresentes = document.getElementById("lista-presentes");
+const contadorEscolhas = document.getElementById("contador-escolhas");
+const btnConfirmarEscolhas = document.getElementById("btn-confirmar-escolhas");
+const mensagemFeedback = document.getElementById("mensagem-feedback");
 
 const modal = document.getElementById("modal-confirmacao");
 const nomePresente = document.getElementById("nome-presente");
 const btnCancelar = document.getElementById("btn-cancelar");
 const btnReservar = document.getElementById("btn-reservar");
 
-let presenteSelecionado = null;
+let presentesDisponiveis = [];
+let presentesSelecionados = [];
+let reservasExistentes = 0;
 
 
 // NAVEGAÇÃO
@@ -64,7 +69,20 @@ async function requisicao(url, options = {}) {
 }
 
 
-// VERIFICAR SE JÁ EXISTE ACESSO SALVO
+// MENSAGENS
+function mostrarFeedback(mensagem, tipo = "sucesso") {
+    mensagemFeedback.textContent = mensagem;
+    mensagemFeedback.className = `feedback-message ${tipo}`;
+    mensagemFeedback.classList.remove("hidden");
+}
+
+function esconderFeedback() {
+    mensagemFeedback.textContent = "";
+    mensagemFeedback.className = "feedback-message hidden";
+}
+
+
+// VERIFICAR ACESSO SALVO
 async function verificarPresenca() {
     const token = obterToken();
 
@@ -119,21 +137,17 @@ formConfirmacao.addEventListener("submit", async (event) => {
             }
         );
 
-        // Acesso administrativo
         if (dados.admin) {
             localStorage.removeItem(TOKEN_KEY);
             window.location.href = dados.redirect;
             return;
         }
 
-        // Salva o acesso individual deste convidado
         localStorage.setItem(TOKEN_KEY, dados.token);
 
-        // Nome que já estava cadastrado: abre a lista diretamente
         if (dados.ja_cadastrado) {
             await abrirLista();
         } else {
-            // Primeiro cadastro: mostra a tela de sucesso
             mostrarTela(telaSucesso);
         }
 
@@ -155,6 +169,10 @@ btnLista.addEventListener("click", abrirLista);
 btnNovoConvidado.addEventListener("click", () => {
     localStorage.removeItem(TOKEN_KEY);
     inputNome.value = "";
+    presentesSelecionados = [];
+    reservasExistentes = 0;
+    esconderFeedback();
+
     mostrarTela(telaConfirmacao);
     inputNome.focus();
 });
@@ -165,42 +183,24 @@ async function carregarPresentes() {
     listaPresentes.innerHTML =
         '<p class="loading">Carregando presentes...</p>';
 
+    esconderFeedback();
+
     try {
-        const presentes = await requisicao(`${API}/presentes`);
+        const token = obterToken();
 
-        listaPresentes.innerHTML = "";
+        const presentes = await requisicao(
+            `${API}/presentes?token=${encodeURIComponent(token)}`
+        );
 
-        if (presentes.length === 0) {
-            listaPresentes.innerHTML = `
-                <div class="empty-list">
-                    <h3>Todos os presentes já foram escolhidos! 💛</h3>
-                    <p>Obrigado pelo carinho e participação.</p>
-                </div>
-            `;
-            return;
-        }
+        presentesDisponiveis = presentes;
 
-        presentes.forEach((presente) => {
-            const item = document.createElement("button");
+        reservasExistentes = presentes.filter(
+            presente => presente.selecionado_por_mim
+        ).length;
 
-            item.type = "button";
-            item.className = "gift-item";
+        presentesSelecionados = [];
 
-            const nome = document.createElement("span");
-            nome.textContent = presente.nome;
-
-            const seta = document.createElement("span");
-            seta.className = "gift-arrow";
-            seta.textContent = "›";
-
-            item.append(nome, seta);
-
-            item.addEventListener("click", () => {
-                selecionarPresente(presente, item);
-            });
-
-            listaPresentes.appendChild(item);
-        });
+        renderizarPresentes();
 
     } catch (erro) {
         listaPresentes.innerHTML = `
@@ -215,39 +215,176 @@ async function carregarPresentes() {
         document
             .getElementById("btn-tentar-novamente")
             .addEventListener("click", carregarPresentes);
+
+        if (erro.message.includes("Confirme sua presença")) {
+            localStorage.removeItem(TOKEN_KEY);
+            mostrarTela(telaConfirmacao);
+        }
     }
 }
 
 
-// SELECIONAR PRESENTE
-function selecionarPresente(presente, elemento) {
-    document.querySelectorAll(".gift-item").forEach((item) => {
-        item.classList.remove("selected");
+// DESENHAR LISTA
+function renderizarPresentes() {
+    listaPresentes.innerHTML = "";
+
+    if (presentesDisponiveis.length === 0) {
+        listaPresentes.innerHTML = `
+            <div class="empty-list">
+                <h3>Não há presentes cadastrados ainda.</h3>
+                <p>Em breve teremos novidades por aqui!</p>
+            </div>
+        `;
+        atualizarContador();
+        return;
+    }
+
+    presentesDisponiveis.forEach((presente) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "gift-item";
+
+        const informacoes = document.createElement("span");
+        informacoes.className = "gift-information";
+
+        const nome = document.createElement("strong");
+        nome.textContent = presente.nome;
+
+        const estoque = document.createElement("small");
+
+        const jaEscolhido = presente.selecionado_por_mim;
+        const esgotado = presente.disponiveis <= 0;
+        const selecionado = presentesSelecionados.includes(presente.id);
+
+        if (jaEscolhido) {
+            estoque.textContent = "Você já escolheu este presente";
+            item.classList.add("already-selected");
+        } else if (esgotado) {
+            estoque.textContent = "Todas as unidades já foram escolhidas";
+            item.classList.add("unavailable");
+        } else if (presente.quantidade_total > 1) {
+            estoque.textContent =
+                `${presente.disponiveis} de ${presente.quantidade_total} disponíveis`;
+        } else {
+            estoque.textContent = "Disponível";
+        }
+
+        informacoes.append(nome, estoque);
+
+        const indicador = document.createElement("span");
+        indicador.className = "gift-indicator";
+
+        if (jaEscolhido) {
+            indicador.textContent = "✓";
+        } else if (selecionado) {
+            indicador.textContent = "✓";
+        } else {
+            indicador.textContent = "+";
+        }
+
+        item.append(informacoes, indicador);
+
+        const limiteAtingido =
+            reservasExistentes + presentesSelecionados.length >= 2;
+
+        if (jaEscolhido || esgotado) {
+            item.disabled = true;
+        } else if (limiteAtingido && !selecionado) {
+            item.disabled = true;
+            item.classList.add("limit-reached");
+        }
+
+        if (selecionado) {
+            item.classList.add("selected");
+        }
+
+        item.addEventListener("click", () => {
+            alternarPresente(presente);
+        });
+
+        listaPresentes.appendChild(item);
     });
 
-    elemento.classList.add("selected");
-    presenteSelecionado = presente;
-    nomePresente.textContent = presente.nome;
-
-    modal.classList.remove("hidden");
+    atualizarContador();
 }
 
 
-// CANCELAR SELEÇÃO
-btnCancelar.addEventListener("click", () => {
-    modal.classList.add("hidden");
+// SELECIONAR / DESELECIONAR
+function alternarPresente(presente) {
+    const indice = presentesSelecionados.indexOf(presente.id);
 
-    document.querySelectorAll(".gift-item").forEach((item) => {
-        item.classList.remove("selected");
-    });
+    if (indice !== -1) {
+        presentesSelecionados.splice(indice, 1);
+    } else {
+        const total = reservasExistentes + presentesSelecionados.length;
 
-    presenteSelecionado = null;
+        if (total >= 2) {
+            mostrarFeedback(
+                "Você já selecionou dois presentes. Desmarque um para escolher outro.",
+                "aviso"
+            );
+            return;
+        }
+
+        if (presente.disponiveis <= 0) {
+            mostrarFeedback(
+                "Esse presente não está mais disponível.",
+                "erro"
+            );
+            return;
+        }
+
+        presentesSelecionados.push(presente.id);
+    }
+
+    esconderFeedback();
+    renderizarPresentes();
+}
+
+
+// CONTADOR E BOTÃO DE CONFIRMAÇÃO
+function atualizarContador() {
+    const total = reservasExistentes + presentesSelecionados.length;
+
+    contadorEscolhas.textContent = `${total} de 2 presentes escolhidos`;
+
+    btnConfirmarEscolhas.disabled =
+        presentesSelecionados.length === 0;
+
+    if (total >= 2) {
+        contadorEscolhas.classList.add("limit-reached-text");
+    } else {
+        contadorEscolhas.classList.remove("limit-reached-text");
+    }
+}
+
+
+// ABRIR MODAL DE CONFIRMAÇÃO
+btnConfirmarEscolhas.addEventListener("click", () => {
+    if (presentesSelecionados.length === 0) {
+        return;
+    }
+
+    const nomes = presentesSelecionados.map(id => {
+        const presente = presentesDisponiveis.find(p => p.id === id);
+        return presente ? presente.nome : "";
+    }).filter(Boolean);
+
+    nomePresente.textContent = nomes.join(" e ");
+
+    modal.classList.remove("hidden");
 });
 
 
-// CONFIRMAR RESERVA
+// CANCELAR CONFIRMAÇÃO
+btnCancelar.addEventListener("click", () => {
+    modal.classList.add("hidden");
+});
+
+
+// CONFIRMAR RESERVAS
 btnReservar.addEventListener("click", async () => {
-    if (!presenteSelecionado) {
+    if (presentesSelecionados.length === 0) {
         return;
     }
 
@@ -258,35 +395,40 @@ btnReservar.addEventListener("click", async () => {
 
     try {
         await requisicao(
-            `${API}/reservar/${presenteSelecionado.id}`,
+            `${API}/reservar`,
             {
                 method: "POST",
-                body: JSON.stringify({ token })
+                body: JSON.stringify({
+                    token,
+                    presentes: presentesSelecionados
+                })
             }
         );
 
         modal.classList.add("hidden");
-        presenteSelecionado = null;
-
-        alert("Presente escolhido com sucesso! Muito obrigado! 💛");
+        presentesSelecionados = [];
 
         await carregarPresentes();
 
+        mostrarFeedback(
+            "Sua escolha foi confirmada! Muito obrigado pelo carinho. Ficamos muito felizes por ter você fazendo parte desse momento tão especial! 💛",
+            "sucesso"
+        );
+
     } catch (erro) {
-        alert(erro.message);
+        modal.classList.add("hidden");
 
         if (erro.message.includes("Confirme sua presença")) {
             localStorage.removeItem(TOKEN_KEY);
-            modal.classList.add("hidden");
             mostrarTela(telaConfirmacao);
         } else {
             await carregarPresentes();
-            modal.classList.add("hidden");
+            mostrarFeedback(erro.message, "erro");
         }
 
     } finally {
         btnReservar.disabled = false;
-        btnReservar.textContent = "Sim, escolher";
+        btnReservar.textContent = "Sim, confirmar";
     }
 });
 
