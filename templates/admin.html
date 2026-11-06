@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Painel Administrativo | Chá de Panela</title>
+
+    <style>
+        :root {
+            --amarelo-fundo: #FFF5D9;
+            --azul: #172D50;
+            --azul-hover: #243F68;
+            --branco: #FFFFFF;
+            --borda: #E2D8C2;
+            --texto: #53647B;
+            --verde: #4B8062;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 30px 16px;
+            background: var(--amarelo-fundo);
+            color: var(--azul);
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            max-width: 650px;
+            margin: 30px auto;
+            padding: 30px;
+            background: var(--branco);
+            border-radius: 16px;
+            box-shadow: 0 5px 20px rgba(23, 45, 80, 0.08);
+        }
+
+        .cabecalho {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 25px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 25px;
+        }
+
+        .subtitulo {
+            margin: 0;
+            color: var(--texto);
+            font-size: 14px;
+        }
+
+        .resumo {
+            padding: 22px;
+            margin-bottom: 25px;
+            background: var(--amarelo-fundo);
+            border-radius: 12px;
+        }
+
+        .resumo span {
+            display: block;
+            color: var(--texto);
+            font-size: 14px;
+        }
+
+        .resumo strong {
+            display: block;
+            margin-top: 8px;
+            font-size: 35px;
+        }
+
+        h2 {
+            margin-bottom: 15px;
+            font-size: 19px;
+        }
+
+        .lista {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .convidado {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 5px;
+            border-bottom: 1px solid var(--borda);
+        }
+
+        .nome {
+            font-weight: 600;
+        }
+
+        .status {
+            color: var(--verde);
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .mensagem {
+            padding: 20px 5px;
+            color: var(--texto);
+            text-align: center;
+        }
+
+        button {
+            padding: 11px 17px;
+            border: none;
+            border-radius: 8px;
+            background: var(--azul);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--azul-hover);
+        }
+
+        .erro {
+            color: #B42318;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 22px 18px;
+            }
+
+            .cabecalho {
+                align-items: flex-start;
+            }
+
+            h1 {
+                font-size: 21px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <main class="container">
+
+        <header class="cabecalho">
+            <div>
+                <h1>Painel administrativo</h1>
+                <p class="subtitulo">Controle de confirmações do chá de panela</p>
+            </div>
+
+            <button id="btn-sair" type="button">
+                Sair
+            </button>
+        </header>
+
+        <section class="resumo">
+            <span>Presenças confirmadas</span>
+            <strong id="total-convidados">0</strong>
+        </section>
+
+        <section>
+            <h2>Lista de convidados</h2>
+
+            <div id="lista-convidados" class="lista">
+                <p class="mensagem">Carregando convidados...</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const totalConvidados = document.getElementById(
+            "total-convidados"
+        );
+
+        const listaConvidados = document.getElementById(
+            "lista-convidados"
+        );
+
+        async function carregarConvidados() {
+            try {
+                const resposta = await fetch(
+                    "/api/admin/convidados"
+                );
+
+                if (resposta.status === 401) {
+                    window.location.href = "/";
+                    return;
+                }
+
+                if (!resposta.ok) {
+                    throw new Error("Erro ao buscar convidados.");
+                }
+
+                const convidados = await resposta.json();
+
+                totalConvidados.textContent = convidados.length;
+
+                listaConvidados.replaceChildren();
+
+                if (convidados.length === 0) {
+                    const mensagem = document.createElement("p");
+                    mensagem.className = "mensagem";
+                    mensagem.textContent =
+                        "Ainda não existem presenças confirmadas.";
+
+                    listaConvidados.appendChild(mensagem);
+                    return;
+                }
+
+                convidados.forEach(convidado => {
+                    const linha = document.createElement("div");
+                    linha.className = "convidado";
+
+                    const nome = document.createElement("span");
+                    nome.className = "nome";
+                    nome.textContent = convidado.nome;
+
+                    const status = document.createElement("span");
+                    status.className = "status";
+                    status.textContent = "Confirmado";
+
+                    linha.appendChild(nome);
+                    linha.appendChild(status);
+
+                    listaConvidados.appendChild(linha);
+                });
+
+            } catch (erro) {
+                listaConvidados.replaceChildren();
+
+                const mensagem = document.createElement("p");
+                mensagem.className = "mensagem erro";
+                mensagem.textContent =
+                    "Não foi possível carregar os convidados.";
+
+                listaConvidados.appendChild(mensagem);
+            }
+        }
+
+        document.getElementById("btn-sair").addEventListener(
+            "click",
+            async () => {
+                await fetch("/api/admin/sair", {
+                    method: "POST"
+                });
+
+                window.location.href = "/";
+            }
+        );
+
+        carregarConvidados();
+    </script>
+
+</body>
+</html>

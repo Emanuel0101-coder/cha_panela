@@ -1,0 +1,172 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Nosso Chá de Panela</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+    <main class="container">
+
+        <!-- CABEÇALHO -->
+        <header class="header">
+            <span class="header-decoration">✦</span>
+
+            <p class="subtitle">UM MOMENTO ESPECIAL</p>
+
+            <h1>Nosso Chá de Panela</h1>
+
+            <p class="header-description">
+                Um momento especial fica ainda melhor
+                com pessoas especiais!
+            </p>
+        </header>
+
+
+        <!-- TELA DE CADASTRO -->
+        <section id="tela-confirmacao" class="content-card">
+
+            <div class="section-icon">💛</div>
+
+            <h2>Que alegria ter você aqui!</h2>
+
+            <p class="description">
+                Para continuar, informe seu nome abaixo.
+                Estamos preparando tudo com muito carinho!
+            </p>
+
+            <form id="form-confirmacao">
+
+                <label for="nome">Seu nome</label>
+
+                <input
+                    type="text"
+                    id="nome"
+                    name="nome"
+                    placeholder="Digite seu nome"
+                    minlength="2"
+                    maxlength="100"
+                    required
+                    autocomplete="name"
+                >
+
+                <button type="submit" id="btn-confirmar">
+                    Confirmar presença
+                </button>
+
+            </form>
+
+        </section>
+
+
+        <!-- TELA DE SUCESSO -->
+        <section id="tela-sucesso" class="content-card hidden">
+
+            <div class="success-icon">✓</div>
+
+            <h2>Sua presença foi confirmada!</h2>
+
+            <p class="description">
+                Estamos muito felizes em ter você participando
+                desse momento tão especial em nossas vidas.
+            </p>
+
+            <p class="description">
+                Preparamos uma lista de presentes com muito carinho.
+                Escolha aquele que deseja nos presentear!
+            </p>
+
+            <button type="button" id="btn-lista">
+                Ver lista de presentes
+            </button>
+
+        </section>
+
+
+        <!-- LISTA DE PRESENTES -->
+        <section id="tela-presentes" class="content-card hidden">
+
+            <div class="section-icon">🎁</div>
+
+            <h2>Lista de presentes</h2>
+
+            <p class="description">
+                Escolha um presente da nossa lista.
+                Ao confirmar sua escolha, ele ficará reservado.
+            </p>
+
+            <div id="lista-presentes" class="gift-list">
+                <p class="loading">Carregando presentes...</p>
+            </div>
+
+            <p class="footer-message">
+                Obrigado por fazer parte desse momento! 💛
+            </p>
+
+            <button
+                type="button"
+                id="btn-novo-convidado"
+                class="btn-secondary"
+                style="margin-top: 15px;"
+            >
+                Cadastrar outra pessoa
+            </button>
+
+        </section>
+
+
+        <!-- MODAL DE CONFIRMAÇÃO -->
+        <div id="modal-confirmacao" class="modal hidden">
+
+            <div class="modal-content">
+
+                <div class="section-icon">🎁</div>
+
+                <h2>Confirmar presente</h2>
+
+                <p>
+                    Você deseja escolher este presente?
+                </p>
+
+                <strong id="nome-presente"></strong>
+
+                <div class="modal-actions">
+
+                    <button
+                        type="button"
+                        id="btn-cancelar"
+                        class="btn-secondary"
+                    >
+                        Cancelar
+                    </button>
+
+                    <button
+                        type="button"
+                        id="btn-reservar"
+                    >
+                        Sim, escolher
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <footer>
+            Feito com carinho para compartilhar esse momento especial.
+        </footer>
+
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+</body>
+</html>
