@@ -77,10 +77,13 @@ body {
     display: none !important;
 }
 
-.section-icon {
-    font-size: 32px;
-    text-align: center;
-    margin-bottom: 15px;
+/* ÍCONE PERSONALIZADO DA LISTA DE PRESENTES */
+.section-icon img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
 }
 
 
