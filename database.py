@@ -37,6 +37,7 @@ def get_db():
             row_factory=dict_row,
             connect_timeout=15,
             application_name="cha-panela",
+            autocommit=True
         )
 
     return g.db
