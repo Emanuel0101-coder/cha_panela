@@ -79,8 +79,8 @@ body {
 
 /* ÍCONE PERSONALIZADO DA LISTA DE PRESENTES */
 .section-icon img {
-    width: 32px;
-    height: 32px;
+    width: 48px;
+    height: 48px;
     object-fit: contain;
     display: block;
     margin: 0 auto;
