@@ -83,6 +83,17 @@ body {
     margin-bottom: 15px;
 }
 
+
+/* IMAGEM DA ESPÁTULA */
+.imagem-espatula {
+    display: block;
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+    margin: 0 auto;
+}
+
+
 .content-card h2 {
     font-family: Georgia, serif;
     text-align: center;
