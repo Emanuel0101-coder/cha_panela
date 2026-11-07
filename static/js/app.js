@@ -24,11 +24,304 @@ const btnCancelar = document.getElementById("btn-cancelar");
 const btnReservar = document.getElementById("btn-reservar");
 
 let presentesDisponiveis = [];
+
+// Agora cada seleção guarda ID e quantidade.
 let presentesSelecionados = [];
+
 let reservasExistentes = 0;
+let presenteEmEscolha = null;
 
 
+// ==========================================
+// MODAL DE QUANTIDADE
+// ==========================================
+
+function criarModalQuantidade() {
+    if (document.getElementById("modal-quantidade")) {
+        return;
+    }
+
+    const estilos = document.createElement("style");
+
+    estilos.textContent = `
+        .quantidade-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(10, 25, 48, 0.65);
+            backdrop-filter: blur(4px);
+        }
+
+        .quantidade-overlay.hidden {
+            display: none;
+        }
+
+        .quantidade-card {
+            width: 100%;
+            max-width: 390px;
+            padding: 30px 24px;
+            border-radius: 20px;
+            background: #fff;
+            text-align: center;
+            box-shadow: 0 15px 50px rgba(0,0,0,0.2);
+            animation: aparecerQuantidade 0.2s ease;
+        }
+
+        @keyframes aparecerQuantidade {
+            from {
+                opacity: 0;
+                transform: translateY(12px) scale(0.97);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .quantidade-icone {
+            width: 58px;
+            height: 58px;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: #fff5d8;
+            font-size: 28px;
+        }
+
+        .quantidade-card h2 {
+            margin: 0 0 10px;
+            color: #142b4c;
+            font-size: 22px;
+        }
+
+        .quantidade-nome {
+            margin: 0 0 8px;
+            color: #142b4c;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .quantidade-descricao {
+            margin: 0 0 22px;
+            color: #687386;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .quantidade-opcoes {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 22px;
+        }
+
+        .quantidade-opcao {
+            flex: 1;
+            min-height: 76px;
+            border: 2px solid #e2e7ee;
+            border-radius: 14px;
+            background: #fff;
+            color: #142b4c;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .quantidade-opcao:hover {
+            border-color: #e9bd45;
+            background: #fffaf0;
+        }
+
+        .quantidade-opcao.ativa {
+            border-color: #e2b438;
+            background: #fff5d8;
+        }
+
+        .quantidade-opcao strong {
+            display: block;
+            font-size: 23px;
+        }
+
+        .quantidade-opcao small {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+        }
+
+        .quantidade-acoes {
+            display: flex;
+            gap: 10px;
+        }
+
+        .quantidade-acoes button {
+            flex: 1;
+            min-height: 45px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .quantidade-cancelar {
+            border: 1px solid #dce1e8;
+            background: #fff;
+            color: #536176;
+        }
+
+        .quantidade-confirmar {
+            border: none;
+            background: #142b4c;
+            color: #fff;
+        }
+
+        .quantidade-confirmar:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+    `;
+
+    document.head.appendChild(estilos);
+
+    const overlay = document.createElement("div");
+
+    overlay.id = "modal-quantidade";
+    overlay.className = "quantidade-overlay hidden";
+
+    overlay.innerHTML = `
+        <div class="quantidade-card">
+            <div class="quantidade-icone">🎁</div>
+
+            <h2>Quantas unidades?</h2>
+
+            <p class="quantidade-nome" id="quantidade-nome"></p>
+
+            <p class="quantidade-descricao" id="quantidade-descricao">
+                Escolha quantas unidades desse presente deseja reservar.
+            </p>
+
+            <div class="quantidade-opcoes" id="quantidade-opcoes"></div>
+
+            <div class="quantidade-acoes">
+                <button
+                    type="button"
+                    class="quantidade-cancelar"
+                    id="quantidade-cancelar"
+                >
+                    Cancelar
+                </button>
+
+                <button
+                    type="button"
+                    class="quantidade-confirmar"
+                    id="quantidade-confirmar"
+                    disabled
+                >
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+            fecharModalQuantidade();
+        }
+    });
+
+    document
+        .getElementById("quantidade-cancelar")
+        .addEventListener("click", fecharModalQuantidade);
+
+    document
+        .getElementById("quantidade-confirmar")
+        .addEventListener("click", confirmarQuantidade);
+}
+
+function abrirModalQuantidade(presente) {
+    presenteEmEscolha = presente;
+
+    const overlay = document.getElementById("modal-quantidade");
+    const nome = document.getElementById("quantidade-nome");
+    const descricao = document.getElementById("quantidade-descricao");
+    const opcoes = document.getElementById("quantidade-opcoes");
+    const btnConfirmarQuantidade = document.getElementById("quantidade-confirmar");
+
+    nome.textContent = presente.nome;
+
+    descricao.textContent =
+        `Há ${presente.disponiveis} unidades disponíveis. Escolha quantas deseja reservar.`;
+
+    opcoes.innerHTML = "";
+    btnConfirmarQuantidade.disabled = true;
+
+    const limite = Math.min(2, presente.disponiveis);
+
+    for (let quantidade = 1; quantidade <= limite; quantidade++) {
+        const botao = document.createElement("button");
+
+        botao.type = "button";
+        botao.className = "quantidade-opcao";
+
+        botao.innerHTML = `
+            <strong>${quantidade}</strong>
+            <small>${quantidade === 1 ? "Unidade" : "Unidades"}</small>
+        `;
+
+        botao.addEventListener("click", () => {
+            opcoes.querySelectorAll(".quantidade-opcao").forEach(opcao => {
+                opcao.classList.remove("ativa");
+            });
+
+            botao.classList.add("ativa");
+
+            presenteEmEscolha.quantidadeEscolhida = quantidade;
+            btnConfirmarQuantidade.disabled = false;
+        });
+
+        opcoes.appendChild(botao);
+    }
+
+    overlay.classList.remove("hidden");
+}
+
+function fecharModalQuantidade() {
+    const overlay = document.getElementById("modal-quantidade");
+
+    if (overlay) {
+        overlay.classList.add("hidden");
+    }
+
+    presenteEmEscolha = null;
+}
+
+function confirmarQuantidade() {
+    if (!presenteEmEscolha || !presenteEmEscolha.quantidadeEscolhida) {
+        return;
+    }
+
+    const presente = presenteEmEscolha;
+
+    presentesSelecionados.push({
+        id: presente.id,
+        quantidade: presente.quantidadeEscolhida
+    });
+
+    fecharModalQuantidade();
+    esconderFeedback();
+    renderizarPresentes();
+}
+
+
+// ==========================================
 // NAVEGAÇÃO
+// ==========================================
+
 function mostrarTela(tela) {
     telaConfirmacao.classList.add("hidden");
     telaSucesso.classList.add("hidden");
@@ -43,13 +336,19 @@ async function abrirLista() {
 }
 
 
+// ==========================================
 // TOKEN
+// ==========================================
+
 function obterToken() {
     return localStorage.getItem(TOKEN_KEY);
 }
 
 
+// ==========================================
 // REQUISIÇÕES
+// ==========================================
+
 async function requisicao(url, options = {}) {
     const resposta = await fetch(url, {
         ...options,
@@ -69,7 +368,10 @@ async function requisicao(url, options = {}) {
 }
 
 
+// ==========================================
 // MENSAGENS
+// ==========================================
+
 function mostrarFeedback(mensagem, tipo = "sucesso") {
     mensagemFeedback.textContent = mensagem;
     mensagemFeedback.className = `feedback-message ${tipo}`;
@@ -82,7 +384,10 @@ function esconderFeedback() {
 }
 
 
+// ==========================================
 // VERIFICAR ACESSO SALVO
+// ==========================================
+
 async function verificarPresenca() {
     const token = obterToken();
 
@@ -114,7 +419,10 @@ async function verificarPresenca() {
 }
 
 
+// ==========================================
 // CADASTRAR / CONFIRMAR PRESENÇA
+// ==========================================
+
 formConfirmacao.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -161,24 +469,35 @@ formConfirmacao.addEventListener("submit", async (event) => {
 });
 
 
+// ==========================================
 // BOTÃO DA TELA DE SUCESSO
+// ==========================================
+
 btnLista.addEventListener("click", abrirLista);
 
 
-// CADASTRAR OUTRA PESSOA NO MESMO NAVEGADOR
+// ==========================================
+// CADASTRAR OUTRA PESSOA
+// ==========================================
+
 btnNovoConvidado.addEventListener("click", () => {
     localStorage.removeItem(TOKEN_KEY);
+
     inputNome.value = "";
     presentesSelecionados = [];
     reservasExistentes = 0;
-    esconderFeedback();
 
+    esconderFeedback();
     mostrarTela(telaConfirmacao);
+
     inputNome.focus();
 });
 
 
+// ==========================================
 // CARREGAR PRESENTES
+// ==========================================
+
 async function carregarPresentes() {
     listaPresentes.innerHTML =
         '<p class="loading">Carregando presentes...</p>';
@@ -224,7 +543,10 @@ async function carregarPresentes() {
 }
 
 
-// DESENHAR LISTA
+// ==========================================
+// DESENHAR LISTA DE PRESENTES
+// ==========================================
+
 function renderizarPresentes() {
     listaPresentes.innerHTML = "";
 
@@ -235,12 +557,14 @@ function renderizarPresentes() {
                 <p>Em breve teremos novidades por aqui!</p>
             </div>
         `;
+
         atualizarContador();
         return;
     }
 
     presentesDisponiveis.forEach((presente) => {
         const item = document.createElement("button");
+
         item.type = "button";
         item.className = "gift-item";
 
@@ -254,17 +578,29 @@ function renderizarPresentes() {
 
         const jaEscolhido = presente.selecionado_por_mim;
         const esgotado = presente.disponiveis <= 0;
-        const selecionado = presentesSelecionados.includes(presente.id);
+
+        const selecaoAtual = presentesSelecionados.find(
+            selecionado => selecionado.id === presente.id
+        );
+
+        const selecionado = Boolean(selecaoAtual);
 
         if (jaEscolhido) {
             estoque.textContent = "Você já escolheu este presente";
             item.classList.add("already-selected");
+
         } else if (esgotado) {
             estoque.textContent = "Todas as unidades já foram escolhidas";
             item.classList.add("unavailable");
+
+        } else if (selecionado) {
+            estoque.textContent =
+                `${selecaoAtual.quantidade} unidade(s) selecionada(s)`;
+
         } else if (presente.quantidade_total > 1) {
             estoque.textContent =
                 `${presente.disponiveis} de ${presente.quantidade_total} disponíveis`;
+
         } else {
             estoque.textContent = "Disponível";
         }
@@ -274,21 +610,19 @@ function renderizarPresentes() {
         const indicador = document.createElement("span");
         indicador.className = "gift-indicator";
 
-        if (jaEscolhido) {
-            indicador.textContent = "✓";
-        } else if (selecionado) {
-            indicador.textContent = "✓";
-        } else {
-            indicador.textContent = "+";
-        }
+        indicador.textContent =
+            jaEscolhido || selecionado ? "✓" : "+";
 
         item.append(informacoes, indicador);
 
-        const limiteAtingido =
-            reservasExistentes + presentesSelecionados.length >= 2;
+        const totalEscolhas =
+            reservasExistentes + presentesSelecionados.length;
+
+        const limiteAtingido = totalEscolhas >= 2;
 
         if (jaEscolhido || esgotado) {
             item.disabled = true;
+
         } else if (limiteAtingido && !selecionado) {
             item.disabled = true;
             item.classList.add("limit-reached");
@@ -309,44 +643,72 @@ function renderizarPresentes() {
 }
 
 
-// SELECIONAR / DESELECIONAR
-function alternarPresente(presente) {
-    const indice = presentesSelecionados.indexOf(presente.id);
+// ==========================================
+// SELECIONAR / DESELECIONAR PRESENTE
+// ==========================================
 
+function alternarPresente(presente) {
+    const indice = presentesSelecionados.findIndex(
+        selecionado => selecionado.id === presente.id
+    );
+
+    // Se já estiver selecionado, remove.
     if (indice !== -1) {
         presentesSelecionados.splice(indice, 1);
-    } else {
-        const total = reservasExistentes + presentesSelecionados.length;
 
-        if (total >= 2) {
-            mostrarFeedback(
-                "Você já selecionou dois presentes. Desmarque um para escolher outro.",
-                "aviso"
-            );
-            return;
-        }
-
-        if (presente.disponiveis <= 0) {
-            mostrarFeedback(
-                "Esse presente não está mais disponível.",
-                "erro"
-            );
-            return;
-        }
-
-        presentesSelecionados.push(presente.id);
+        esconderFeedback();
+        renderizarPresentes();
+        return;
     }
+
+    const total =
+        reservasExistentes + presentesSelecionados.length;
+
+    if (total >= 2) {
+        mostrarFeedback(
+            "Você já selecionou dois presentes. Desmarque um para escolher outro.",
+            "aviso"
+        );
+
+        return;
+    }
+
+    if (presente.disponiveis <= 0) {
+        mostrarFeedback(
+            "Esse presente não está mais disponível.",
+            "erro"
+        );
+
+        return;
+    }
+
+    // Se houver mais de uma unidade, pergunta a quantidade.
+    if (presente.disponiveis > 1) {
+        abrirModalQuantidade(presente);
+        return;
+    }
+
+    // Se houver somente uma unidade, seleciona diretamente.
+    presentesSelecionados.push({
+        id: presente.id,
+        quantidade: 1
+    });
 
     esconderFeedback();
     renderizarPresentes();
 }
 
 
+// ==========================================
 // CONTADOR E BOTÃO DE CONFIRMAÇÃO
-function atualizarContador() {
-    const total = reservasExistentes + presentesSelecionados.length;
+// ==========================================
 
-    contadorEscolhas.textContent = `${total} de 2 presentes escolhidos`;
+function atualizarContador() {
+    const total =
+        reservasExistentes + presentesSelecionados.length;
+
+    contadorEscolhas.textContent =
+        `${total} de 2 presentes escolhidos`;
 
     btnConfirmarEscolhas.disabled =
         presentesSelecionados.length === 0;
@@ -359,15 +721,28 @@ function atualizarContador() {
 }
 
 
-// ABRIR MODAL DE CONFIRMAÇÃO
+// ==========================================
+// ABRIR MODAL DE CONFIRMAÇÃO FINAL
+// ==========================================
+
 btnConfirmarEscolhas.addEventListener("click", () => {
     if (presentesSelecionados.length === 0) {
         return;
     }
 
-    const nomes = presentesSelecionados.map(id => {
-        const presente = presentesDisponiveis.find(p => p.id === id);
-        return presente ? presente.nome : "";
+    const nomes = presentesSelecionados.map(selecao => {
+        const presente = presentesDisponiveis.find(
+            p => p.id === selecao.id
+        );
+
+        if (!presente) {
+            return "";
+        }
+
+        return selecao.quantidade > 1
+            ? `${presente.nome} (${selecao.quantidade} unidades)`
+            : presente.nome;
+
     }).filter(Boolean);
 
     nomePresente.textContent = nomes.join(" e ");
@@ -376,13 +751,19 @@ btnConfirmarEscolhas.addEventListener("click", () => {
 });
 
 
-// CANCELAR CONFIRMAÇÃO
+// ==========================================
+// CANCELAR CONFIRMAÇÃO FINAL
+// ==========================================
+
 btnCancelar.addEventListener("click", () => {
     modal.classList.add("hidden");
 });
 
 
+// ==========================================
 // CONFIRMAR RESERVAS
+// ==========================================
+
 btnReservar.addEventListener("click", async () => {
     if (presentesSelecionados.length === 0) {
         return;
@@ -421,6 +802,7 @@ btnReservar.addEventListener("click", async () => {
         if (erro.message.includes("Confirme sua presença")) {
             localStorage.removeItem(TOKEN_KEY);
             mostrarTela(telaConfirmacao);
+
         } else {
             await carregarPresentes();
             mostrarFeedback(erro.message, "erro");
@@ -433,5 +815,9 @@ btnReservar.addEventListener("click", async () => {
 });
 
 
+// ==========================================
 // INICIALIZAÇÃO
+// ==========================================
+
+criarModalQuantidade();
 verificarPresenca();

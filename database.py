@@ -1,4 +1,3 @@
-
 import hashlib
 import os
 
@@ -37,7 +36,7 @@ def get_db():
             row_factory=dict_row,
             connect_timeout=15,
             application_name="cha-panela",
-            autocommit=True
+            autocommit=True,
         )
 
     return g.db
@@ -239,13 +238,15 @@ def listar_presentes(convidado_id):
             p.nome,
             p.quantidade_total,
 
-            (
-                p.quantidade_total
-                - p.reservado
-                - (
-                    SELECT COUNT(*)
-                    FROM reservas AS r
-                    WHERE r.presente_id = p.id
+            GREATEST(
+                0,
+                p.quantidade_total - COALESCE(
+                    (
+                        SELECT SUM(r.quantidade)
+                        FROM reservas AS r
+                        WHERE r.presente_id = p.id
+                    ),
+                    0
                 )
             ) AS disponiveis,
 
@@ -254,13 +255,23 @@ def listar_presentes(convidado_id):
                 FROM reservas AS r
                 WHERE r.presente_id = p.id
                   AND r.convidado_id = %s
-            ) AS selecionado_por_mim
+            ) AS selecionado_por_mim,
+
+            COALESCE(
+                (
+                    SELECT r.quantidade
+                    FROM reservas AS r
+                    WHERE r.presente_id = p.id
+                      AND r.convidado_id = %s
+                ),
+                0
+            ) AS quantidade_selecionada
 
         FROM presentes AS p
 
         ORDER BY lower(p.nome)
         """,
-        (convidado_id,),
+        (convidado_id, convidado_id),
     ).fetchall()
 
 
@@ -285,16 +296,37 @@ def contar_reservas(convidado_id):
 # RESERVAR PRESENTES
 # ==========================================
 
-def reservar_presentes(convidado_id, presentes_ids):
+def reservar_presentes(convidado_id, presentes):
     db = get_db()
 
-    # Remove IDs repetidos, mantendo a ordem.
-    presentes_ids = list(
-        dict.fromkeys(presentes_ids)
-    )
-
-    if not presentes_ids:
+    if not presentes:
         return False, "Selecione pelo menos um presente."
+
+    if len(presentes) > 2:
+        return False, "Você pode escolher no máximo dois presentes."
+
+    # Valida IDs e quantidades.
+    ids = []
+
+    for item in presentes:
+        if not isinstance(item, dict):
+            return False, "Um dos presentes selecionados é inválido."
+
+        presente_id = item.get("id")
+        quantidade = item.get("quantidade")
+
+        if (
+            type(presente_id) is not int
+            or presente_id <= 0
+            or type(quantidade) is not int
+            or quantidade <= 0
+        ):
+            return False, "A quantidade ou o presente selecionado é inválido."
+
+        ids.append(presente_id)
+
+    if len(ids) != len(set(ids)):
+        return False, "O mesmo presente não pode ser selecionado duas vezes."
 
     try:
         with db.transaction():
@@ -310,6 +342,7 @@ def reservar_presentes(convidado_id, presentes_ids):
                 (f"convidado:{convidado_id}",),
             )
 
+            # Conta os presentes distintos já escolhidos.
             quantidade_atual = db.execute(
                 """
                 SELECT COUNT(*) AS total
@@ -319,57 +352,67 @@ def reservar_presentes(convidado_id, presentes_ids):
                 (convidado_id,),
             ).fetchone()["total"]
 
-            if quantidade_atual + len(presentes_ids) > 2:
+            if quantidade_atual + len(presentes) > 2:
                 return (
                     False,
                     "Você pode escolher no máximo dois presentes."
                 )
 
             # Bloqueia as linhas dos presentes selecionados.
-            # Isso impede que duas pessoas reservem
-            # a mesma última unidade simultaneamente.
-            presentes = db.execute(
+            # Isso evita que duas pessoas reservem
+            # simultaneamente as mesmas unidades disponíveis.
+            presentes_banco = db.execute(
                 """
                 SELECT
                     id,
-                    quantidade_total,
-                    reservado
+                    quantidade_total
                 FROM presentes
                 WHERE id = ANY(%s)
                 ORDER BY id
                 FOR UPDATE
                 """,
-                (presentes_ids,),
+                (ids,),
             ).fetchall()
 
-            if len(presentes) != len(presentes_ids):
+            if len(presentes_banco) != len(ids):
                 return (
                     False,
                     "Um dos presentes selecionados não existe."
                 )
 
+            presentes_por_id = {
+                presente["id"]: presente
+                for presente in presentes_banco
+            }
+
             # Confere a disponibilidade de cada presente.
-            for presente in presentes:
+            for item in presentes:
+                presente_id = item["id"]
+                quantidade_solicitada = item["quantidade"]
+
+                presente = presentes_por_id[presente_id]
 
                 reservados = db.execute(
                     """
-                    SELECT COUNT(*) AS total
+                    SELECT COALESCE(SUM(quantidade), 0) AS total
                     FROM reservas
                     WHERE presente_id = %s
                     """,
-                    (presente["id"],),
+                    (presente_id,),
                 ).fetchone()["total"]
 
                 disponiveis = (
-                    presente["quantidade_total"]
-                    - presente["reservado"]
-                    - reservados
+                    presente["quantidade_total"] - reservados
                 )
 
-                if disponiveis <= 0:
+                if quantidade_solicitada > disponiveis:
                     return (
                         False,
-                        "Um dos presentes acabou de ser escolhido."
+                        (
+                            "A quantidade solicitada para um dos presentes "
+                            "não está mais disponível. Atualize a página "
+                            "e tente novamente."
+                        )
                     )
 
             # Confirma todas as reservas na mesma transação.
@@ -379,13 +422,18 @@ def reservar_presentes(convidado_id, presentes_ids):
                     """
                     INSERT INTO reservas (
                         convidado_id,
-                        presente_id
+                        presente_id,
+                        quantidade
                     )
-                    VALUES (%s, %s)
+                    VALUES (%s, %s, %s)
                     """,
                     [
-                        (convidado_id, presente_id)
-                        for presente_id in presentes_ids
+                        (
+                            convidado_id,
+                            item["id"],
+                            item["quantidade"],
+                        )
+                        for item in presentes
                     ],
                 )
 

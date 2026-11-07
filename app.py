@@ -13,6 +13,7 @@ from database import (
     reservar_presentes,
 )
 
+
 app = Flask(__name__)
 
 app.config["DATABASE_URL"] = os.environ.get("DATABASE_URL", "").strip()
@@ -50,6 +51,7 @@ def index():
 def pagina_admin():
     if not session.get("admin_autenticado"):
         return redirect("/")
+
     return render_template("admin.html")
 
 
@@ -68,7 +70,7 @@ def obter_token():
 
 
 def validar_convidado(token):
-    if not token:
+    if not isinstance(token, str) or not token:
         return None
 
     return buscar_convidado(token)
@@ -165,6 +167,7 @@ def api_presentes():
             "selecionado_por_mim": bool(
                 presente["selecionado_por_mim"]
             ),
+            "quantidade_selecionada": presente["quantidade_selecionada"],
         }
         for presente in presentes
     ])
@@ -183,25 +186,52 @@ def api_reservar():
             "erro": "Confirme sua presença para continuar."
         }), 401
 
-    presentes_ids = dados.get("presentes", [])
+    presentes = dados.get("presentes", [])
+
+    # Agora cada presente deve ser enviado como:
+    # {"id": 1, "quantidade": 2}
 
     if (
-        not isinstance(presentes_ids, list)
-        or len(presentes_ids) == 0
-        or len(presentes_ids) > 2
-        or any(
-            type(item) is not int or item <= 0
-            for item in presentes_ids
-        )
+        not isinstance(presentes, list)
+        or len(presentes) == 0
+        or len(presentes) > 2
     ):
         return jsonify({
             "erro": "Selecione entre um e dois presentes."
         }), 400
 
+    ids = []
+
+    for item in presentes:
+        if not isinstance(item, dict):
+            return jsonify({
+                "erro": "Formato de presente inválido."
+            }), 400
+
+        presente_id = item.get("id")
+        quantidade = item.get("quantidade")
+
+        if (
+            type(presente_id) is not int
+            or presente_id <= 0
+            or type(quantidade) is not int
+            or quantidade <= 0
+        ):
+            return jsonify({
+                "erro": "A quantidade ou o presente selecionado é inválido."
+            }), 400
+
+        ids.append(presente_id)
+
+    if len(ids) != len(set(ids)):
+        return jsonify({
+            "erro": "O mesmo presente não pode ser selecionado duas vezes."
+        }), 400
+
     try:
         sucesso, mensagem = reservar_presentes(
             convidado["id"],
-            presentes_ids,
+            presentes,
         )
 
     except psycopg.Error:
