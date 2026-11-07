@@ -24,10 +24,7 @@ const btnCancelar = document.getElementById("btn-cancelar");
 const btnReservar = document.getElementById("btn-reservar");
 
 let presentesDisponiveis = [];
-
-// Agora cada seleção guarda ID e quantidade.
 let presentesSelecionados = [];
-
 let reservasExistentes = 0;
 let presenteEmEscolha = null;
 
@@ -37,9 +34,7 @@ let presenteEmEscolha = null;
 // ==========================================
 
 function criarModalQuantidade() {
-    if (document.getElementById("modal-quantidade")) {
-        return;
-    }
+    if (document.getElementById("modal-quantidade")) return;
 
     const estilos = document.createElement("style");
 
@@ -206,20 +201,16 @@ function criarModalQuantidade() {
             <div class="quantidade-opcoes" id="quantidade-opcoes"></div>
 
             <div class="quantidade-acoes">
-                <button
-                    type="button"
+                <button type="button"
                     class="quantidade-cancelar"
-                    id="quantidade-cancelar"
-                >
+                    id="quantidade-cancelar">
                     Cancelar
                 </button>
 
-                <button
-                    type="button"
+                <button type="button"
                     class="quantidade-confirmar"
                     id="quantidade-confirmar"
-                    disabled
-                >
+                    disabled>
                     Confirmar
                 </button>
             </div>
@@ -228,7 +219,7 @@ function criarModalQuantidade() {
 
     document.body.appendChild(overlay);
 
-    overlay.addEventListener("click", (event) => {
+    overlay.addEventListener("click", event => {
         if (event.target === overlay) {
             fecharModalQuantidade();
         }
@@ -243,6 +234,7 @@ function criarModalQuantidade() {
         .addEventListener("click", confirmarQuantidade);
 }
 
+
 function abrirModalQuantidade(presente) {
     presenteEmEscolha = presente;
 
@@ -250,7 +242,24 @@ function abrirModalQuantidade(presente) {
     const nome = document.getElementById("quantidade-nome");
     const descricao = document.getElementById("quantidade-descricao");
     const opcoes = document.getElementById("quantidade-opcoes");
-    const btnConfirmarQuantidade = document.getElementById("quantidade-confirmar");
+    const btnConfirmarQuantidade =
+        document.getElementById("quantidade-confirmar");
+
+    const escolhasJaFeitas = presentesSelecionados.reduce(
+        (total, item) => total + item.quantidade,
+        0
+    );
+
+    const escolhasRestantes =
+        2 - reservasExistentes - escolhasJaFeitas;
+
+    const limite = Math.min(
+        2,
+        Number(presente.disponiveis),
+        escolhasRestantes
+    );
+
+    if (limite <= 0) return;
 
     nome.textContent = presente.nome;
 
@@ -260,7 +269,7 @@ function abrirModalQuantidade(presente) {
     opcoes.innerHTML = "";
     btnConfirmarQuantidade.disabled = true;
 
-    const limite = Math.min(2, presente.disponiveis);
+    presente.quantidadeEscolhida = null;
 
     for (let quantidade = 1; quantidade <= limite; quantidade++) {
         const botao = document.createElement("button");
@@ -279,8 +288,7 @@ function abrirModalQuantidade(presente) {
             });
 
             botao.classList.add("ativa");
-
-            presenteEmEscolha.quantidadeEscolhida = quantidade;
+            presente.quantidadeEscolhida = quantidade;
             btnConfirmarQuantidade.disabled = false;
         });
 
@@ -289,6 +297,7 @@ function abrirModalQuantidade(presente) {
 
     overlay.classList.remove("hidden");
 }
+
 
 function fecharModalQuantidade() {
     const overlay = document.getElementById("modal-quantidade");
@@ -300,16 +309,18 @@ function fecharModalQuantidade() {
     presenteEmEscolha = null;
 }
 
+
 function confirmarQuantidade() {
-    if (!presenteEmEscolha || !presenteEmEscolha.quantidadeEscolhida) {
+    if (
+        !presenteEmEscolha ||
+        !presenteEmEscolha.quantidadeEscolhida
+    ) {
         return;
     }
 
-    const presente = presenteEmEscolha;
-
     presentesSelecionados.push({
-        id: presente.id,
-        quantidade: presente.quantidadeEscolhida
+        id: presenteEmEscolha.id,
+        quantidade: presenteEmEscolha.quantidadeEscolhida
     });
 
     fecharModalQuantidade();
@@ -329,6 +340,7 @@ function mostrarTela(tela) {
 
     tela.classList.remove("hidden");
 }
+
 
 async function abrirLista() {
     mostrarTela(telaPresentes);
@@ -378,6 +390,7 @@ function mostrarFeedback(mensagem, tipo = "sucesso") {
     mensagemFeedback.classList.remove("hidden");
 }
 
+
 function esconderFeedback() {
     mensagemFeedback.textContent = "";
     mensagemFeedback.className = "feedback-message hidden";
@@ -423,7 +436,7 @@ async function verificarPresenca() {
 // CADASTRAR / CONFIRMAR PRESENÇA
 // ==========================================
 
-formConfirmacao.addEventListener("submit", async (event) => {
+formConfirmacao.addEventListener("submit", async event => {
     event.preventDefault();
 
     const nome = inputNome.value.trim();
@@ -507,15 +520,16 @@ async function carregarPresentes() {
     try {
         const token = obterToken();
 
-        const presentes = await requisicao(
+        presentesDisponiveis = await requisicao(
             `${API}/presentes?token=${encodeURIComponent(token)}`
         );
 
-        presentesDisponiveis = presentes;
-
-        reservasExistentes = presentes.filter(
-            presente => presente.selecionado_por_mim
-        ).length;
+        // Soma as unidades já reservadas pelo convidado.
+        reservasExistentes = presentesDisponiveis.reduce(
+            (total, presente) =>
+                total + Number(presente.quantidade_selecionada || 0),
+            0
+        );
 
         presentesSelecionados = [];
 
@@ -562,7 +576,14 @@ function renderizarPresentes() {
         return;
     }
 
-    presentesDisponiveis.forEach((presente) => {
+    const unidadesSelecionadas = presentesSelecionados.reduce(
+        (total, item) => total + item.quantidade,
+        0
+    );
+
+    const totalEscolhas = reservasExistentes + unidadesSelecionadas;
+
+    presentesDisponiveis.forEach(presente => {
         const item = document.createElement("button");
 
         item.type = "button";
@@ -577,7 +598,7 @@ function renderizarPresentes() {
         const estoque = document.createElement("small");
 
         const jaEscolhido = presente.selecionado_por_mim;
-        const esgotado = presente.disponiveis <= 0;
+        const esgotado = Number(presente.disponiveis) <= 0;
 
         const selecaoAtual = presentesSelecionados.find(
             selecionado => selecionado.id === presente.id
@@ -586,7 +607,9 @@ function renderizarPresentes() {
         const selecionado = Boolean(selecaoAtual);
 
         if (jaEscolhido) {
-            estoque.textContent = "Você já escolheu este presente";
+            estoque.textContent =
+                `Você já reservou ${presente.quantidade_selecionada} unidade(s)`;
+
             item.classList.add("already-selected");
 
         } else if (esgotado) {
@@ -609,14 +632,9 @@ function renderizarPresentes() {
 
         const indicador = document.createElement("span");
         indicador.className = "gift-indicator";
-
-        indicador.textContent =
-            jaEscolhido || selecionado ? "✓" : "+";
+        indicador.textContent = jaEscolhido || selecionado ? "✓" : "+";
 
         item.append(informacoes, indicador);
-
-        const totalEscolhas =
-            reservasExistentes + presentesSelecionados.length;
 
         const limiteAtingido = totalEscolhas >= 2;
 
@@ -652,7 +670,6 @@ function alternarPresente(presente) {
         selecionado => selecionado.id === presente.id
     );
 
-    // Se já estiver selecionado, remove.
     if (indice !== -1) {
         presentesSelecionados.splice(indice, 1);
 
@@ -661,34 +678,34 @@ function alternarPresente(presente) {
         return;
     }
 
-    const total =
-        reservasExistentes + presentesSelecionados.length;
+    const unidadesSelecionadas = presentesSelecionados.reduce(
+        (total, item) => total + item.quantidade,
+        0
+    );
+
+    const total = reservasExistentes + unidadesSelecionadas;
 
     if (total >= 2) {
         mostrarFeedback(
-            "Você já selecionou dois presentes. Desmarque um para escolher outro.",
+            "Você já escolheu suas duas unidades de presentes.",
             "aviso"
         );
-
         return;
     }
 
-    if (presente.disponiveis <= 0) {
+    if (Number(presente.disponiveis) <= 0) {
         mostrarFeedback(
             "Esse presente não está mais disponível.",
             "erro"
         );
-
         return;
     }
 
-    // Se houver mais de uma unidade, pergunta a quantidade.
-    if (presente.disponiveis > 1) {
+    if (Number(presente.disponiveis) > 1) {
         abrirModalQuantidade(presente);
         return;
     }
 
-    // Se houver somente uma unidade, seleciona diretamente.
     presentesSelecionados.push({
         id: presente.id,
         quantidade: 1
@@ -704,11 +721,15 @@ function alternarPresente(presente) {
 // ==========================================
 
 function atualizarContador() {
-    const total =
-        reservasExistentes + presentesSelecionados.length;
+    const unidadesSelecionadas = presentesSelecionados.reduce(
+        (total, item) => total + item.quantidade,
+        0
+    );
+
+    const total = reservasExistentes + unidadesSelecionadas;
 
     contadorEscolhas.textContent =
-        `${total} de 2 presentes escolhidos`;
+        `${total} de 2 unidades escolhidas`;
 
     btnConfirmarEscolhas.disabled =
         presentesSelecionados.length === 0;
@@ -726,18 +747,14 @@ function atualizarContador() {
 // ==========================================
 
 btnConfirmarEscolhas.addEventListener("click", () => {
-    if (presentesSelecionados.length === 0) {
-        return;
-    }
+    if (presentesSelecionados.length === 0) return;
 
     const nomes = presentesSelecionados.map(selecao => {
         const presente = presentesDisponiveis.find(
             p => p.id === selecao.id
         );
 
-        if (!presente) {
-            return "";
-        }
+        if (!presente) return "";
 
         return selecao.quantidade > 1
             ? `${presente.nome} (${selecao.quantidade} unidades)`
@@ -765,9 +782,7 @@ btnCancelar.addEventListener("click", () => {
 // ==========================================
 
 btnReservar.addEventListener("click", async () => {
-    if (presentesSelecionados.length === 0) {
-        return;
-    }
+    if (presentesSelecionados.length === 0) return;
 
     const token = obterToken();
 
@@ -802,7 +817,6 @@ btnReservar.addEventListener("click", async () => {
         if (erro.message.includes("Confirme sua presença")) {
             localStorage.removeItem(TOKEN_KEY);
             mostrarTela(telaConfirmacao);
-
         } else {
             await carregarPresentes();
             mostrarFeedback(erro.message, "erro");

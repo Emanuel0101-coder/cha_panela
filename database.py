@@ -1,3 +1,4 @@
+
 import hashlib
 import os
 
@@ -36,7 +37,7 @@ def get_db():
             row_factory=dict_row,
             connect_timeout=15,
             application_name="cha-panela",
-            autocommit=True,
+            autocommit=True
         )
 
     return g.db
@@ -91,7 +92,6 @@ def init_db():
         ).fetchone()["total"]
 
         if quantidade == 0:
-            # No Psycopg 3, executemany pertence ao cursor.
             with db.cursor() as cursor:
                 cursor.executemany(
                     """
@@ -239,15 +239,13 @@ def listar_presentes(convidado_id):
             p.quantidade_total,
 
             GREATEST(
-                0,
-                p.quantidade_total - COALESCE(
-                    (
-                        SELECT SUM(r.quantidade)
-                        FROM reservas AS r
-                        WHERE r.presente_id = p.id
-                    ),
-                    0
-                )
+                p.quantidade_total
+                - COALESCE((
+                    SELECT SUM(r.quantidade)
+                    FROM reservas AS r
+                    WHERE r.presente_id = p.id
+                ), 0),
+                0
             ) AS disponiveis,
 
             EXISTS (
@@ -257,15 +255,12 @@ def listar_presentes(convidado_id):
                   AND r.convidado_id = %s
             ) AS selecionado_por_mim,
 
-            COALESCE(
-                (
-                    SELECT r.quantidade
-                    FROM reservas AS r
-                    WHERE r.presente_id = p.id
-                      AND r.convidado_id = %s
-                ),
-                0
-            ) AS quantidade_selecionada
+            COALESCE((
+                SELECT SUM(r.quantidade)
+                FROM reservas AS r
+                WHERE r.presente_id = p.id
+                  AND r.convidado_id = %s
+            ), 0) AS quantidade_selecionada
 
         FROM presentes AS p
 
@@ -276,7 +271,7 @@ def listar_presentes(convidado_id):
 
 
 # ==========================================
-# CONTAR RESERVAS DO CONVIDADO
+# CONTAR UNIDADES RESERVADAS PELO CONVIDADO
 # ==========================================
 
 def contar_reservas(convidado_id):
@@ -284,7 +279,7 @@ def contar_reservas(convidado_id):
 
     return db.execute(
         """
-        SELECT COUNT(*) AS total
+        SELECT COALESCE(SUM(quantidade), 0) AS total
         FROM reservas
         WHERE convidado_id = %s
         """,
@@ -299,34 +294,57 @@ def contar_reservas(convidado_id):
 def reservar_presentes(convidado_id, presentes):
     db = get_db()
 
-    if not presentes:
+    if not isinstance(presentes, list) or not presentes:
         return False, "Selecione pelo menos um presente."
 
-    if len(presentes) > 2:
-        return False, "Você pode escolher no máximo dois presentes."
+    presentes_normalizados = []
+    ids_recebidos = set()
 
-    # Valida IDs e quantidades.
-    ids = []
-
+    # Valida os dados recebidos do JavaScript.
     for item in presentes:
+
         if not isinstance(item, dict):
-            return False, "Um dos presentes selecionados é inválido."
+            return False, "Dados de reserva inválidos."
 
         presente_id = item.get("id")
         quantidade = item.get("quantidade")
 
+        # bool também é considerado int em Python,
+        # por isso fazemos a validação explicitamente.
         if (
-            type(presente_id) is not int
+            isinstance(presente_id, bool)
+            or not isinstance(presente_id, int)
             or presente_id <= 0
-            or type(quantidade) is not int
+        ):
+            return False, "Identificação de presente inválida."
+
+        if (
+            isinstance(quantidade, bool)
+            or not isinstance(quantidade, int)
             or quantidade <= 0
         ):
-            return False, "A quantidade ou o presente selecionado é inválido."
+            return False, "Quantidade de presente inválida."
 
-        ids.append(presente_id)
+        if presente_id in ids_recebidos:
+            return False, "Um presente foi selecionado mais de uma vez."
 
-    if len(ids) != len(set(ids)):
-        return False, "O mesmo presente não pode ser selecionado duas vezes."
+        ids_recebidos.add(presente_id)
+
+        presentes_normalizados.append({
+            "id": presente_id,
+            "quantidade": quantidade
+        })
+
+    quantidade_nova = sum(
+        item["quantidade"]
+        for item in presentes_normalizados
+    )
+
+    if quantidade_nova > 2:
+        return (
+            False,
+            "Você pode escolher no máximo duas unidades de presentes."
+        )
 
     try:
         with db.transaction():
@@ -342,25 +360,29 @@ def reservar_presentes(convidado_id, presentes):
                 (f"convidado:{convidado_id}",),
             )
 
-            # Conta os presentes distintos já escolhidos.
+            # Soma as unidades já reservadas.
             quantidade_atual = db.execute(
                 """
-                SELECT COUNT(*) AS total
+                SELECT COALESCE(SUM(quantidade), 0) AS total
                 FROM reservas
                 WHERE convidado_id = %s
                 """,
                 (convidado_id,),
             ).fetchone()["total"]
 
-            if quantidade_atual + len(presentes) > 2:
+            if quantidade_atual + quantidade_nova > 2:
                 return (
                     False,
-                    "Você pode escolher no máximo dois presentes."
+                    "Você já utilizou suas duas unidades de presentes."
                 )
 
-            # Bloqueia as linhas dos presentes selecionados.
-            # Isso evita que duas pessoas reservem
-            # simultaneamente as mesmas unidades disponíveis.
+            # Bloqueia os presentes selecionados para
+            # evitar que duas pessoas reservem a última unidade.
+            ids_presentes = [
+                item["id"]
+                for item in presentes_normalizados
+            ]
+
             presentes_banco = db.execute(
                 """
                 SELECT
@@ -371,10 +393,10 @@ def reservar_presentes(convidado_id, presentes):
                 ORDER BY id
                 FOR UPDATE
                 """,
-                (ids,),
+                (ids_presentes,),
             ).fetchall()
 
-            if len(presentes_banco) != len(ids):
+            if len(presentes_banco) != len(ids_presentes):
                 return (
                     False,
                     "Um dos presentes selecionados não existe."
@@ -385,38 +407,52 @@ def reservar_presentes(convidado_id, presentes):
                 for presente in presentes_banco
             }
 
-            # Confere a disponibilidade de cada presente.
-            for item in presentes:
-                presente_id = item["id"]
-                quantidade_solicitada = item["quantidade"]
+            # Confere se o convidado já reservou algum
+            # dos presentes selecionados.
+            for item in presentes_normalizados:
 
-                presente = presentes_por_id[presente_id]
+                ja_reservado = db.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM reservas
+                        WHERE convidado_id = %s
+                          AND presente_id = %s
+                    ) AS existe
+                    """,
+                    (convidado_id, item["id"]),
+                ).fetchone()["existe"]
 
-                reservados = db.execute(
+                if ja_reservado:
+                    return (
+                        False,
+                        "Você já reservou um desses presentes."
+                    )
+
+                presente = presentes_por_id[item["id"]]
+
+                quantidade_reservada = db.execute(
                     """
                     SELECT COALESCE(SUM(quantidade), 0) AS total
                     FROM reservas
                     WHERE presente_id = %s
                     """,
-                    (presente_id,),
+                    (item["id"],),
                 ).fetchone()["total"]
 
                 disponiveis = (
-                    presente["quantidade_total"] - reservados
+                    presente["quantidade_total"]
+                    - quantidade_reservada
                 )
 
-                if quantidade_solicitada > disponiveis:
+                if item["quantidade"] > disponiveis:
                     return (
                         False,
-                        (
-                            "A quantidade solicitada para um dos presentes "
-                            "não está mais disponível. Atualize a página "
-                            "e tente novamente."
-                        )
+                        "A quantidade disponível desse presente mudou. Atualize a página e tente novamente."
                     )
 
-            # Confirma todas as reservas na mesma transação.
-            # Se alguma falhar, nenhuma será confirmada.
+            # Insere uma linha por presente, guardando
+            # a quantidade escolhida naquela linha.
             with db.cursor() as cursor:
                 cursor.executemany(
                     """
@@ -431,9 +467,9 @@ def reservar_presentes(convidado_id, presentes):
                         (
                             convidado_id,
                             item["id"],
-                            item["quantidade"],
+                            item["quantidade"]
                         )
-                        for item in presentes
+                        for item in presentes_normalizados
                     ],
                 )
 
@@ -442,7 +478,7 @@ def reservar_presentes(convidado_id, presentes):
     except psycopg.errors.UniqueViolation:
         return (
             False,
-            "Você já escolheu um desses presentes."
+            "Você já reservou um desses presentes."
         )
 
 
@@ -452,6 +488,9 @@ def reservar_presentes(convidado_id, presentes):
 
 def adicionar_presente(nome, quantidade=1):
     db = get_db()
+
+    if not isinstance(quantidade, int) or quantidade < 1:
+        raise ValueError("A quantidade precisa ser maior que zero.")
 
     with db.transaction():
         presente = db.execute(
